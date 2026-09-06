@@ -1,0 +1,18 @@
+# Offline diagnostic channel. Writes JSON lines instead of contacting Telegram.
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[storage]
+database = "var/local-check.sqlite3"
+
+[delivery]
+poll_interval_seconds = 0.2
+
+[routing]
+default_channel = "local"
+
+[channels.local]
+type = "file"
+path = "var/check-notifications.jsonl"
+

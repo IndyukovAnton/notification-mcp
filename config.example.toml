@@ -1,0 +1,29 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[storage]
+database = "var/notifications.sqlite3"
+
+[delivery]
+poll_interval_seconds = 1.0
+request_timeout_seconds = 10.0
+max_attempts = 8
+retry_base_seconds = 5.0
+retry_max_seconds = 300.0
+
+[routing]
+default_channel = "personal"
+
+# Optional rules: choose a channel by event; callers never choose a transport.
+# [routing.events]
+# error = "personal"
+# review_requested = "personal"
+
+[channels.personal]
+type = "telegram"
+bot_token = "REPLACE_WITH_BOT_TOKEN"
+# Send /start to the running bot to save the recipient automatically.
+# Optional fixed recipient (disables /start setup):
+# chat_id = "123456789"
+# Alternatively, remove bot_token and set bot_token_env = "TELEGRAM_BOT_TOKEN".
