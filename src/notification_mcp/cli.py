@@ -23,7 +23,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--config", type=Path, help="Use an explicit config instead of personal settings"
     )
-    commands = result.add_subparsers(dest="command", required=True)
+    commands = result.add_subparsers(dest="command")
     setup = commands.add_parser(
         "setup", help="One-time setup: enter a token and save personal settings"
     )
@@ -54,7 +54,10 @@ def parser() -> argparse.ArgumentParser:
         nargs="?",
         const=DEFAULT_TELEGRAM_TOKEN_ENV,
         metavar="NAME",
-        help="Use a forwarded token variable and omit the service config (default name: %(const)s)",
+        help=(
+            "Prompt for a token and store it in the MCP entry's private environment "
+            "(default key: %(const)s)"
+        ),
     )
     client = commands.add_parser("client-config", help="Print ready-to-paste MCP settings")
     client.add_argument("client", choices=["codex", "json"], default="json", nargs="?")
@@ -64,7 +67,7 @@ def parser() -> argparse.ArgumentParser:
         nargs="?",
         const=DEFAULT_TELEGRAM_TOKEN_ENV,
         metavar="NAME",
-        help="Use a forwarded token variable and omit the service config (default name: %(const)s)",
+        help=("Print a config with a key/value environment placeholder (default key: %(const)s)"),
     )
     commands.add_parser(
         "test", help="Send one real test notification through MCP and check delivery"
@@ -106,6 +109,11 @@ def configure_logging() -> None:
 
 def main() -> int:
     arguments = parser().parse_args()
+    if arguments.command is None:
+        arguments.command = "serve"
+        arguments.transport = "stdio"
+        arguments.token_env = DEFAULT_TELEGRAM_TOKEN_ENV
+        arguments.managed = False
     configure_logging()
     try:
         config_path = resolve_config(arguments.config)
@@ -150,6 +158,11 @@ def main() -> int:
                 print(json.dumps(state, ensure_ascii=False, indent=2))
             return 0
         token_env = getattr(arguments, "token_env", None)
+        token_value = None
+        if arguments.command == "connect" and token_env is not None:
+            token_value = getpass.getpass("Telegram bot token (input hidden): ").strip()
+            if not token_value:
+                raise ValueError("Telegram bot token cannot be empty")
         transport = getattr(arguments, "transport", None)
         if arguments.command == "client-config" and transport is None:
             transport = "stdio" if token_env is not None else "http"
@@ -199,10 +212,13 @@ def main() -> int:
                     None if environment_client else config_path,
                     transport,
                     token_env=token_env,
+                    token_value=token_value,
                 )
                 print(f"{'Connected' if changed else 'Already connected'}: {target}")
                 if token_env is not None:
-                    print(f"Codex will forward {token_env}; no service config is used.")
+                    print(
+                        f"Token saved as {token_env} in the MCP entry; no service config is used."
+                    )
                 if transport == "stdio":
                     print("Restart Codex; it will start and stop the server automatically.")
                 else:
@@ -287,7 +303,7 @@ def main() -> int:
     except FileNotFoundError:
         print(
             "Configuration not found. Run notification-mcp setup, pass --config PATH, "
-            "or set TELEGRAM_BOT_TOKEN for config-free stdio.",
+            "or provide TELEGRAM_BOT_TOKEN in the MCP server environment.",
             file=sys.stderr,
         )
         return 2

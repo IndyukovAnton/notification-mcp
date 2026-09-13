@@ -35,19 +35,19 @@ uv build
 а установленная команда остаётся `notification-mcp`. Wheel устанавливается командой
 `uv tool install путь/к/пакету.whl`.
 
-GitHub Actions проверяет Windows, Linux и macOS, Ruff, тесты и сборку пакета. После push
-дождитесь зелёного workflow **Check**. Workflow **Release** запускается для тега `v*`, повторяет
-проверки, требует точного совпадения тега с `notification_mcp.__version__`, устанавливает
-собранный wheel в чистое окружение и создаёт GitHub Release с wheel и sdist.
+GitHub Actions выполняет полный Ruff/pytest/build один раз на Linux и короткий smoke-check запуска
+на Windows и macOS. После push дождитесь зелёного workflow **Check**. Workflow **Release** не
+повторяет полный набор: проверяет версию тега, собирает и устанавливает wheel в чистое окружение,
+затем создаёт GitHub Release с wheel и sdist.
 
-Подготовка версии `0.3.0`:
+Подготовка версии `0.4.0`:
 
 ```shell
 git add .
-git commit -m "Release notification-mcp 0.3.0"
+git commit -m "Release notification-mcp 0.4.0"
 git push origin main
-git tag -a v0.3.0 -m "notification-mcp 0.3.0"
-git push origin v0.3.0
+git tag -a v0.4.0 -m "notification-mcp 0.4.0"
+git push origin v0.4.0
 ```
 
 Перед тегом версия в `pyproject.toml` и `src/notification_mcp/__init__.py` должна совпадать.

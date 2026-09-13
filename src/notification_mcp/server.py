@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -11,6 +11,16 @@ from starlette.routing import Mount, Route
 from notification_mcp.config import Settings
 from notification_mcp.models import EnqueueResult, Event, Notification, NotificationStatus
 from notification_mcp.service import NotificationService
+
+PROJECT_URL = "https://github.com/IndyukovAnton/notification-mcp"
+SERVER_ICON = Icon(
+    src=(
+        "https://raw.githubusercontent.com/IndyukovAnton/notification-mcp/"
+        "main/src/notification_mcp/assets/notification-mcp.png"
+    ),
+    mimeType="image/png",
+    sizes=["1280x1280"],
+)
 
 
 def create_mcp(service: NotificationService) -> FastMCP:
@@ -25,6 +35,8 @@ def create_mcp(service: NotificationService) -> FastMCP:
             "Use notification_status to check delivery. Reuse an idempotency_key for the same "
             "logical event; use a new key for a new event. Do not include credentials in messages."
         ),
+        website_url=PROJECT_URL,
+        icons=[SERVER_ICON],
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(
@@ -35,9 +47,11 @@ def create_mcp(service: NotificationService) -> FastMCP:
     )
 
     @mcp.tool(
+        title="Send notification",
+        icons=[SERVER_ICON],
         annotations=ToolAnnotations(
             readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
-        )
+        ),
     )
     async def notify(
         message: str,
@@ -61,7 +75,9 @@ def create_mcp(service: NotificationService) -> FastMCP:
         return service.enqueue(notification, idempotency_key)
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
+        title="Notification status",
+        icons=[SERVER_ICON],
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False),
     )
     async def notification_status(notification_id: str) -> NotificationStatus:
         """Read queued/sending/sent/failed status. 'sent' does not confirm the user read it."""

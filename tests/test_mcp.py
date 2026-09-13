@@ -22,9 +22,12 @@ async def test_mcp_handshake_notification_status_and_deduplication(settings, tmp
                 _,
             ):
                 async with ClientSession(read, write) as session:
-                    await session.initialize()
+                    initialization = await session.initialize()
+                    assert initialization.serverInfo.websiteUrl.endswith("/notification-mcp")
+                    assert initialization.serverInfo.icons[0].mimeType == "image/png"
                     tools = (await session.list_tools()).tools
                     assert {tool.name for tool in tools} == {"notify", "notification_status"}
+                    assert all(tool.icons and tool.title for tool in tools)
                     notify_schema = next(t for t in tools if t.name == "notify").inputSchema
                     assert "channel" not in notify_schema["properties"]
                     assert "chat_id" not in notify_schema["properties"]

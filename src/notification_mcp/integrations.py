@@ -6,9 +6,11 @@ import sys
 import tomllib
 from pathlib import Path
 
-from notification_mcp.config import DEFAULT_TELEGRAM_TOKEN_ENV, Settings, TelegramChannel
+from notification_mcp.config import Settings, TelegramChannel
 from notification_mcp.installation import atomic_write
 from notification_mcp.worker_lock import WorkerLock
+
+TOKEN_PLACEHOLDER = "<PASTE_TELEGRAM_BOT_TOKEN_HERE>"
 
 
 def server_url(settings: Settings) -> str:
@@ -24,15 +26,16 @@ def client_entry(
     transport: str,
     *,
     token_env: str | None = None,
+    token_value: str | None = None,
 ) -> dict:
     if token_env is not None:
         if transport != "stdio":
             raise ValueError("Environment-token mode requires stdio transport")
         TelegramChannel(bot_token_env=token_env)
-        args = ["-m", "notification_mcp", "serve", "--transport", "stdio"]
-        if token_env != DEFAULT_TELEGRAM_TOKEN_ENV:
-            args.extend(["--token-env", token_env])
-        return {"command": sys.executable, "args": args, "env_vars": [token_env]}
+        return {
+            "command": "notification-mcp",
+            "env": {token_env: token_value or TOKEN_PLACEHOLDER},
+        }
     if settings is None or config is None:
         raise ValueError("Settings and config are required outside environment-token mode")
     if transport == "http":
@@ -58,23 +61,32 @@ def client_config(
     transport: str = "http",
     *,
     token_env: str | None = None,
+    token_value: str | None = None,
 ) -> str:
-    if token_env is not None and client != "codex":
-        raise ValueError("Environment-token config generation is currently supported for Codex")
-    entry = client_entry(settings, config, transport, token_env=token_env)
+    entry = client_entry(
+        settings,
+        config,
+        transport,
+        token_env=token_env,
+        token_value=token_value,
+    )
     if client == "codex":
-        return (
-            "[mcp_servers.notifications]\n"
-            + "\n".join(f"{key} = {json.dumps(value)}" for key, value in entry.items())
-            + "\n"
+        env = entry.pop("env", None)
+        result = "[mcp_servers.notifications]\n" + "\n".join(
+            f"{key} = {json.dumps(value)}" for key, value in entry.items()
         )
+        if env:
+            result += "\n\n[mcp_servers.notifications.env]\n" + "\n".join(
+                f"{key} = {json.dumps(value)}" for key, value in env.items()
+            )
+        return result + "\n"
     return json.dumps({"mcpServers": {"notifications": entry}}, ensure_ascii=False, indent=2)
 
 
 def _matches_entry(existing: object, expected: dict) -> bool:
     if not isinstance(existing, dict) or not existing.get("enabled", True):
         return False
-    transport_keys = {"url", "command", "args"}
+    transport_keys = {"url", "command", "args", "env", "env_vars"}
     return all(existing.get(key) == value for key, value in expected.items()) and not any(
         key in existing and key not in expected for key in transport_keys
     )
@@ -86,10 +98,17 @@ def connect_codex(
     transport: str = "http",
     *,
     token_env: str | None = None,
+    token_value: str | None = None,
 ) -> tuple[Path, bool]:
     directory = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     target = directory.expanduser().resolve() / "config.toml"
-    expected = client_entry(settings, config, transport, token_env=token_env)
+    expected = client_entry(
+        settings,
+        config,
+        transport,
+        token_env=token_env,
+        token_value=token_value,
+    )
     with WorkerLock(target.with_name("notification-mcp-connect")):
         text = target.read_text(encoding="utf-8-sig") if target.exists() else ""
         data = tomllib.loads(text)
@@ -107,7 +126,14 @@ def connect_codex(
         updated = (
             text.rstrip()
             + "\n\n"
-            + client_config(settings, config, "codex", transport, token_env=token_env)
+            + client_config(
+                settings,
+                config,
+                "codex",
+                transport,
+                token_env=token_env,
+                token_value=token_value,
+            )
         )
         try:
             parsed = tomllib.loads(updated)
