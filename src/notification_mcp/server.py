@@ -70,7 +70,7 @@ def create_mcp(service: NotificationService) -> FastMCP:
     return mcp
 
 
-def create_http_app(settings: Settings) -> Starlette:
+def create_http_app(settings: Settings, *, extra_routes: tuple | list = ()) -> Starlette:
     service = NotificationService(settings)
     mcp = create_mcp(service)
     mcp_app = mcp.streamable_http_app()
@@ -86,7 +86,9 @@ def create_http_app(settings: Settings) -> Starlette:
             status_code=200 if service.healthy else 503,
         )
 
-    return Starlette(routes=[Route("/health", health), Mount("/", app=mcp_app)], lifespan=lifespan)
+    return Starlette(
+        routes=[Route("/health", health), *extra_routes, Mount("/", app=mcp_app)], lifespan=lifespan
+    )
 
 
 async def serve_stdio(settings: Settings) -> None:

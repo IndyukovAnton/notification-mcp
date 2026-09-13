@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.11
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen pytest -q
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          package_version="$(uv run --frozen python -c 'import notification_mcp; print(notification_mcp.__version__)')"
+          test "$GITHUB_REF_NAME" = "v$package_version"
+      - run: uv build
+      - name: Smoke-test built wheel
+        shell: bash
+        run: |
+          uv venv --python 3.11 .release-venv
+          uv pip install --python .release-venv/bin/python dist/*.whl
+          .release-venv/bin/notification-mcp --version
+          .release-venv/bin/notification-mcp --config "$RUNNER_TEMP/notification-mcp/config.toml" setup --local
+          .release-venv/bin/notification-mcp --config "$RUNNER_TEMP/notification-mcp/config.toml" check-config
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
