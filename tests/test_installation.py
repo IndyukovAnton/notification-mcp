@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from notification_mcp.cli import main, parser
-from notification_mcp.config import load_settings
-from notification_mcp.installation import resolve_config, setup_config
+from notification_mcp.config import DEFAULT_TELEGRAM_TOKEN_ENV, load_settings
+from notification_mcp.installation import environment_settings, resolve_config, setup_config
 from notification_mcp.integrations import client_config, connect_codex
 from notification_mcp.models import Notification
 from notification_mcp.service import NotificationService
@@ -34,6 +34,19 @@ def test_default_config_is_independent_of_current_directory(tmp_path, monkeypatc
     assert resolve_config(None) == personal
     explicit = tmp_path / "explicit.toml"
     assert resolve_config(explicit) == explicit
+
+
+def test_environment_settings_use_forwarded_token_without_creating_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv(DEFAULT_TELEGRAM_TOKEN_ENV, "123:private-token")
+
+    settings = environment_settings()
+
+    assert settings.channels["personal"].token() == "123:private-token"
+    assert settings.storage.database == (
+        tmp_path / "local/notification-mcp/var/notifications.sqlite3"
+    )
+    assert not (tmp_path / "local/notification-mcp/config.toml").exists()
 
 
 def test_import_keeps_queue_binding_and_token(tmp_path):
@@ -112,9 +125,118 @@ def test_codex_connect_supports_repeatable_stdio(settings, tmp_path, monkeypatch
     assert not connect_codex(settings, config, "stdio")[1]
 
 
+def test_codex_connect_supports_config_free_environment_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+
+    target, changed = connect_codex(None, None, "stdio", token_env=DEFAULT_TELEGRAM_TOKEN_ENV)
+
+    assert changed
+    entry = tomllib.loads(target.read_text(encoding="utf-8"))["mcp_servers"]["notifications"]
+    assert Path(entry["command"]).is_absolute()
+    assert entry["args"] == [
+        "-m",
+        "notification_mcp",
+        "serve",
+        "--transport",
+        "stdio",
+    ]
+    assert entry["env_vars"] == [DEFAULT_TELEGRAM_TOKEN_ENV]
+    assert "--config" not in entry["args"]
+    assert not connect_codex(None, None, "stdio", token_env=DEFAULT_TELEGRAM_TOKEN_ENV)[1]
+
+
+def test_environment_token_client_config_supports_custom_variable():
+    data = tomllib.loads(client_config(None, None, "codex", "stdio", token_env="MY_TELEGRAM_TOKEN"))
+    entry = data["mcp_servers"]["notifications"]
+    assert entry["env_vars"] == ["MY_TELEGRAM_TOKEN"]
+    assert entry["args"][-2:] == ["--token-env", "MY_TELEGRAM_TOKEN"]
+    with pytest.raises(ValueError, match="requires stdio"):
+        client_config(None, None, "codex", "http", token_env=DEFAULT_TELEGRAM_TOKEN_ENV)
+    with pytest.raises(ValueError, match="supported for Codex"):
+        client_config(None, None, "json", "stdio", token_env=DEFAULT_TELEGRAM_TOKEN_ENV)
+
+
 def test_codex_cli_defaults_to_stdio():
     assert parser().parse_args(["connect", "codex"]).transport == "stdio"
     assert parser().parse_args(["setup", "--client", "codex"]).transport == "stdio"
+    assert (
+        parser().parse_args(["connect", "codex", "--token-env"]).token_env
+        == DEFAULT_TELEGRAM_TOKEN_ENV
+    )
+
+
+def test_stdio_serve_builds_settings_from_forwarded_token(tmp_path, monkeypatch):
+    import notification_mcp.server
+
+    captured = {}
+
+    async def serve(settings):
+        captured["settings"] = settings
+
+    monkeypatch.setattr(notification_mcp.server, "serve_stdio", serve)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv(DEFAULT_TELEGRAM_TOKEN_ENV, "123:private-token")
+    monkeypatch.delenv("NOTIFICATION_MCP_CONFIG", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["notification-mcp", "serve", "--transport", "stdio"],
+    )
+
+    assert main() == 0
+    assert captured["settings"].channels["personal"].token() == "123:private-token"
+    assert not (tmp_path / "local/notification-mcp/config.toml").exists()
+
+
+def test_explicit_config_wins_over_environment_profile(tmp_path, monkeypatch):
+    import notification_mcp.server
+
+    captured = {}
+
+    async def serve(settings):
+        captured["settings"] = settings
+
+    config = tmp_path / "explicit.toml"
+    setup_config(config, local=True)
+    monkeypatch.setattr(notification_mcp.server, "serve_stdio", serve)
+    monkeypatch.setenv(DEFAULT_TELEGRAM_TOKEN_ENV, "123:private-token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "notification-mcp",
+            "--config",
+            str(config),
+            "serve",
+            "--transport",
+            "stdio",
+        ],
+    )
+
+    assert main() == 0
+    assert captured["settings"].channels["personal"].type == "file"
+
+
+def test_connect_cli_environment_profile_needs_no_service_config(tmp_path, monkeypatch, capsys):
+    codex_home = tmp_path / "codex"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.delenv("NOTIFICATION_MCP_CONFIG", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["notification-mcp", "connect", "codex", "--token-env"],
+    )
+
+    assert main() == 0
+
+    entry = tomllib.loads((codex_home / "config.toml").read_text(encoding="utf-8"))["mcp_servers"][
+        "notifications"
+    ]
+    assert entry["env_vars"] == [DEFAULT_TELEGRAM_TOKEN_ENV]
+    assert "--config" not in entry["args"]
+    assert not (tmp_path / "local/notification-mcp/config.toml").exists()
+    assert "no service config is used" in capsys.readouterr().out
 
 
 def test_setup_can_configure_codex_stdio_in_one_command(tmp_path, monkeypatch, capsys):

@@ -40,14 +40,14 @@ GitHub Actions проверяет Windows, Linux и macOS, Ruff, тесты и �
 проверки, требует точного совпадения тега с `notification_mcp.__version__`, устанавливает
 собранный wheel в чистое окружение и создаёт GitHub Release с wheel и sdist.
 
-Подготовка версии `0.2.0`:
+Подготовка версии `0.3.0`:
 
 ```shell
 git add .
-git commit -m "Release notification-mcp 0.2.0"
+git commit -m "Release notification-mcp 0.3.0"
 git push origin main
-git tag -a v0.2.0 -m "notification-mcp 0.2.0"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "notification-mcp 0.3.0"
+git push origin v0.3.0
 ```
 
 Перед тегом версия в `pyproject.toml` и `src/notification_mcp/__init__.py` должна совпадать.

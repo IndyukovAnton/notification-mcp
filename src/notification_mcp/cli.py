@@ -3,6 +3,7 @@ import asyncio
 import getpass
 import json
 import logging
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -10,8 +11,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from notification_mcp import __version__
-from notification_mcp.config import load_settings
-from notification_mcp.installation import resolve_config, setup_config
+from notification_mcp.config import DEFAULT_TELEGRAM_TOKEN_ENV, load_settings
+from notification_mcp.installation import environment_settings, resolve_config, setup_config
 from notification_mcp.models import Event, Notification
 from notification_mcp.service import NotificationService
 
@@ -48,14 +49,33 @@ def parser() -> argparse.ArgumentParser:
     connect.add_argument(
         "--transport", choices=["http", "stdio"], default="stdio", help="Default: stdio"
     )
+    connect.add_argument(
+        "--token-env",
+        nargs="?",
+        const=DEFAULT_TELEGRAM_TOKEN_ENV,
+        metavar="NAME",
+        help="Use a forwarded token variable and omit the service config (default name: %(const)s)",
+    )
     client = commands.add_parser("client-config", help="Print ready-to-paste MCP settings")
     client.add_argument("client", choices=["codex", "json"], default="json", nargs="?")
-    client.add_argument("--transport", choices=["http", "stdio"], default="http")
+    client.add_argument("--transport", choices=["http", "stdio"])
+    client.add_argument(
+        "--token-env",
+        nargs="?",
+        const=DEFAULT_TELEGRAM_TOKEN_ENV,
+        metavar="NAME",
+        help="Use a forwarded token variable and omit the service config (default name: %(const)s)",
+    )
     commands.add_parser(
         "test", help="Send one real test notification through MCP and check delivery"
     )
     serve = commands.add_parser("serve", help="Run MCP and the durable delivery worker")
     serve.add_argument("--transport", choices=["http", "stdio"], default="http")
+    serve.add_argument(
+        "--token-env",
+        metavar="NAME",
+        help="Build a single Telegram channel from this environment variable",
+    )
     serve.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)
     commands.add_parser("check-config", help="Validate settings and configured credentials")
     notify = commands.add_parser("notify", help="Queue an event locally; a running worker sends it")
@@ -129,16 +149,36 @@ def main() -> int:
                 state = runtime.stop() if arguments.command == "stop" else runtime.status()
                 print(json.dumps(state, ensure_ascii=False, indent=2))
             return 0
-        settings = load_settings(
-            config_path,
-            check_secrets=arguments.command
-            not in (
-                "status",
-                "connect",
-                "client-config",
-                "test",
-            ),
+        token_env = getattr(arguments, "token_env", None)
+        transport = getattr(arguments, "transport", None)
+        if arguments.command == "client-config" and transport is None:
+            transport = "stdio" if token_env is not None else "http"
+        environment_client = (
+            arguments.command in ("connect", "client-config") and token_env is not None
         )
+        environment_server = (
+            arguments.command == "serve"
+            and transport == "stdio"
+            and not arguments.managed
+            and arguments.config is None
+            and "NOTIFICATION_MCP_CONFIG" not in os.environ
+            and (token_env is not None or DEFAULT_TELEGRAM_TOKEN_ENV in os.environ)
+        )
+        if environment_client:
+            settings = None
+        elif environment_server:
+            settings = environment_settings(token_env or DEFAULT_TELEGRAM_TOKEN_ENV)
+        else:
+            settings = load_settings(
+                config_path,
+                check_secrets=arguments.command
+                not in (
+                    "status",
+                    "connect",
+                    "client-config",
+                    "test",
+                ),
+            )
         if arguments.command in ("start", "restart"):
             from notification_mcp.runtime import Runtime
 
@@ -154,15 +194,30 @@ def main() -> int:
             from notification_mcp.integrations import client_config, connect_codex
 
             if arguments.command == "connect":
-                target, changed = connect_codex(settings, config_path, arguments.transport)
+                target, changed = connect_codex(
+                    settings,
+                    None if environment_client else config_path,
+                    transport,
+                    token_env=token_env,
+                )
                 print(f"{'Connected' if changed else 'Already connected'}: {target}")
-                if arguments.transport == "stdio":
+                if token_env is not None:
+                    print(f"Codex will forward {token_env}; no service config is used.")
+                if transport == "stdio":
                     print("Restart Codex; it will start and stop the server automatically.")
                 else:
                     print("Run notification-mcp start, then restart Codex.")
                 print("Ask Codex to send a notification using notify.")
             else:
-                print(client_config(settings, config_path, arguments.client, arguments.transport))
+                print(
+                    client_config(
+                        settings,
+                        None if environment_client else config_path,
+                        arguments.client,
+                        transport,
+                        token_env=token_env,
+                    )
+                )
             return 0
         if arguments.command == "test":
             from notification_mcp.diagnostics import check
@@ -231,7 +286,8 @@ def main() -> int:
         return 2
     except FileNotFoundError:
         print(
-            "Configuration not found. Run notification-mcp setup or pass --config PATH.",
+            "Configuration not found. Run notification-mcp setup, pass --config PATH, "
+            "or set TELEGRAM_BOT_TOKEN for config-free stdio.",
             file=sys.stderr,
         )
         return 2

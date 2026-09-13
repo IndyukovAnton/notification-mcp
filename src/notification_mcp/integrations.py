@@ -6,7 +6,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from notification_mcp.config import Settings
+from notification_mcp.config import DEFAULT_TELEGRAM_TOKEN_ENV, Settings, TelegramChannel
 from notification_mcp.installation import atomic_write
 from notification_mcp.worker_lock import WorkerLock
 
@@ -18,7 +18,23 @@ def server_url(settings: Settings) -> str:
     return f"http://{host}:{settings.server.port}"
 
 
-def client_entry(settings: Settings, config: Path, transport: str) -> dict:
+def client_entry(
+    settings: Settings | None,
+    config: Path | None,
+    transport: str,
+    *,
+    token_env: str | None = None,
+) -> dict:
+    if token_env is not None:
+        if transport != "stdio":
+            raise ValueError("Environment-token mode requires stdio transport")
+        TelegramChannel(bot_token_env=token_env)
+        args = ["-m", "notification_mcp", "serve", "--transport", "stdio"]
+        if token_env != DEFAULT_TELEGRAM_TOKEN_ENV:
+            args.extend(["--token-env", token_env])
+        return {"command": sys.executable, "args": args, "env_vars": [token_env]}
+    if settings is None or config is None:
+        raise ValueError("Settings and config are required outside environment-token mode")
     if transport == "http":
         return {"url": server_url(settings) + "/mcp"}
     return {
@@ -35,8 +51,17 @@ def client_entry(settings: Settings, config: Path, transport: str) -> dict:
     }
 
 
-def client_config(settings: Settings, config: Path, client: str, transport: str = "http") -> str:
-    entry = client_entry(settings, config, transport)
+def client_config(
+    settings: Settings | None,
+    config: Path | None,
+    client: str,
+    transport: str = "http",
+    *,
+    token_env: str | None = None,
+) -> str:
+    if token_env is not None and client != "codex":
+        raise ValueError("Environment-token config generation is currently supported for Codex")
+    entry = client_entry(settings, config, transport, token_env=token_env)
     if client == "codex":
         return (
             "[mcp_servers.notifications]\n"
@@ -55,10 +80,16 @@ def _matches_entry(existing: object, expected: dict) -> bool:
     )
 
 
-def connect_codex(settings: Settings, config: Path, transport: str = "http") -> tuple[Path, bool]:
+def connect_codex(
+    settings: Settings | None,
+    config: Path | None,
+    transport: str = "http",
+    *,
+    token_env: str | None = None,
+) -> tuple[Path, bool]:
     directory = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     target = directory.expanduser().resolve() / "config.toml"
-    expected = client_entry(settings, config, transport)
+    expected = client_entry(settings, config, transport, token_env=token_env)
     with WorkerLock(target.with_name("notification-mcp-connect")):
         text = target.read_text(encoding="utf-8-sig") if target.exists() else ""
         data = tomllib.loads(text)
@@ -73,7 +104,11 @@ def connect_codex(settings: Settings, config: Path, transport: str = "http") -> 
                 "Codex already has different or disabled notifications settings. "
                 f"Run 'codex mcp remove notifications', then retry. Config: {target}"
             )
-        updated = text.rstrip() + "\n\n" + client_config(settings, config, "codex", transport)
+        updated = (
+            text.rstrip()
+            + "\n\n"
+            + client_config(settings, config, "codex", transport, token_env=token_env)
+        )
         try:
             parsed = tomllib.loads(updated)
         except tomllib.TOMLDecodeError:

@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from notification_mcp.config import (
+    DEFAULT_TELEGRAM_TOKEN_ENV,
     FileChannel,
     RoutingConfig,
     Settings,
@@ -36,6 +37,17 @@ def resolve_config(explicit: Path | None) -> Path:
         return Path(override).expanduser().resolve()
     # Do not silently load credentials from an arbitrary current working directory.
     return personal_config().resolve()
+
+
+def environment_settings(token_env: str = DEFAULT_TELEGRAM_TOKEN_ENV) -> Settings:
+    """Build the single-Telegram-channel profile without reading or writing a config file."""
+    channel = TelegramChannel(bot_token_env=token_env)
+    channel.token()
+    return Settings(
+        storage=StorageConfig(database=personal_config().parent / "var/notifications.sqlite3"),
+        routing=RoutingConfig(default_channel="personal"),
+        channels={"personal": channel},
+    )
 
 
 def atomic_write(path: Path, text: str) -> None:

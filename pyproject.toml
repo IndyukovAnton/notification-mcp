@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "notification-mcp-relay"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local MCP notification service with configurable delivery channels and a durable queue"
 readme = "README.md"
 requires-python = ">=3.11"

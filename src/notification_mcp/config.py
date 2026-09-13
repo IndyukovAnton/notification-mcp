@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 
 from notification_mcp.models import Event
 
+DEFAULT_TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
+
 
 class ConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -39,7 +41,9 @@ class DeliveryConfig(ConfigModel):
 class TelegramChannel(ConfigModel):
     type: Literal["telegram"] = "telegram"
     bot_token: SecretStr | None = Field(default=None, exclude=True)
-    bot_token_env: str = Field(default="TELEGRAM_BOT_TOKEN", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    bot_token_env: str = Field(
+        default=DEFAULT_TELEGRAM_TOKEN_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
     chat_id: str | None = Field(default=None, pattern=r"^-?[1-9][0-9]*$")
 
     @field_validator("bot_token")
@@ -71,7 +75,9 @@ class TelegramDestination(ConfigModel):
     chat_id: str = Field(pattern=r"^-?[1-9][0-9]*$")
     bot_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]*$")
     # Compatibility with notifications queued by the environment-only version.
-    bot_token_env: str = Field(default="TELEGRAM_BOT_TOKEN", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    bot_token_env: str = Field(
+        default=DEFAULT_TELEGRAM_TOKEN_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
 
 
 class FileChannel(ConfigModel):

@@ -17,5 +17,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host ''
 Write-Host 'Installed. Open a NEW terminal and run:'
 Write-Host '  notification-mcp setup --client codex'
+Write-Host '  or, with TELEGRAM_BOT_TOKEN in the client environment:'
+Write-Host '  notification-mcp connect codex --token-env'
 Write-Host ''
 Write-Host 'Then restart Codex, check /mcp, and send /start to your Telegram bot.'

@@ -33,6 +33,8 @@ jobs:
           .release-venv/bin/notification-mcp --version
           .release-venv/bin/notification-mcp --config "$RUNNER_TEMP/notification-mcp/config.toml" setup --local
           .release-venv/bin/notification-mcp --config "$RUNNER_TEMP/notification-mcp/config.toml" check-config
+          .release-venv/bin/notification-mcp client-config codex --token-env \
+            | grep -F 'env_vars = ["TELEGRAM_BOT_TOKEN"]'
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
