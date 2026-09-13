@@ -37,16 +37,15 @@ def test_default_config_is_independent_of_current_directory(tmp_path, monkeypatc
 
 
 def test_environment_settings_use_forwarded_token_without_creating_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    config = tmp_path / "local/notification-mcp/config.toml"
+    monkeypatch.setattr("notification_mcp.installation.personal_config", lambda: config)
     monkeypatch.setenv(DEFAULT_TELEGRAM_TOKEN_ENV, "123:private-token")
 
     settings = environment_settings()
 
     assert settings.channels["personal"].token() == "123:private-token"
-    assert settings.storage.database == (
-        tmp_path / "local/notification-mcp/var/notifications.sqlite3"
-    )
-    assert not (tmp_path / "local/notification-mcp/config.toml").exists()
+    assert settings.storage.database == config.parent / "var/notifications.sqlite3"
+    assert not config.exists()
 
 
 def test_import_keeps_queue_binding_and_token(tmp_path):
